@@ -73,40 +73,57 @@ export const useChatStore = create(
             { type: 'assistant', content: '', isError: false, isLoading: true, timestamp: Date.now() },
           ],
         }))
+
         const openai = new OpenAI({
           apiKey: apiKey,
           dangerouslyAllowBrowser: true,
         })
+
         const options: ImageGenerateParams = {
           prompt: get().inputPrompt,
           model: 'dall-e-3',
-          n: 1,
+          n: 1, // 유지
           response_format: 'b64_json',
           size: size,
           style: style,
           quality: quality,
         }
+
         controller = new AbortController()
         const signal = controller.signal
+
         try {
-          const completion = await openai.images.generate(options, {
-            signal: signal,
-          })
-          const base64 = completion.data[0].b64_json
-          if (!base64) throw new Error('invalid base64')
-          const key = await imageStore.storeImage('data:image/png;base64,' + base64)
+          const imagePromises = [
+            openai.images.generate(options, { signal }),
+            openai.images.generate(options, { signal }),
+            openai.images.generate(options, { signal }),
+          ]
+          const completions = await Promise.all(imagePromises)
+
+          const imageKeys = await Promise.all(
+            completions.map(async (completion) => {
+              const base64 = completion.data[0].b64_json
+              if (!base64) throw new Error('invalid base64')
+              return await imageStore.storeImage('data:image/png;base64,' + base64)
+            }),
+          )
+
           const imageMeta: ImageMeta = {
             style: useConfigStore.getState().style,
             size: useConfigStore.getState().size,
             quality: useConfigStore.getState().quality,
           }
+
+          // 세 이미지 키를 하나의 문자열로 결합
+          const imagesContent = imageKeys.join(', ')
+
           set(() => ({
             inputPrompt: '',
             messages: [
               ...get().messages.slice(0, -1),
               {
                 type: 'assistant',
-                content: key,
+                content: imagesContent, // 세 이미지를 포함한 단일 메시지
                 imageMeta,
                 isError: false,
                 timestamp: Date.now(),

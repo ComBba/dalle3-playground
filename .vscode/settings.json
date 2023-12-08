@@ -1,11 +1,28 @@
 {
   "typescript.tsdk": "node_modules/typescript/lib",
   "editor.codeActionsOnSave": {
-    "source.fixAll.eslint": true,
-    "source.fixAll.stylelint": true
+    "source.fixAll.eslint": "explicit",
+    "source.fixAll.stylelint": "explicit"
   },
   "git.ignoreLimitWarning": true,
   "editor.quickSuggestions": {
     "strings": true
-  }
+  },
+  "cSpell.words": [
+    "clsx",
+    "commitlint",
+    "dall",
+    "languagedetector",
+    "localforage",
+    "lucide",
+    "openai",
+    "partialize",
+    "stylelint",
+    "svgr",
+    "tailwindcss",
+    "tanstack",
+    "transmart",
+    "typecheck",
+    "zustand"
+  ]
 }

@@ -39,11 +39,15 @@ export const MessageList: React.FC = () => {
 }
 
 const ChatItem = ({ type, content, isLoading, isError, imageMeta, timestamp }: Message) => {
-  const [src, setSrc] = useState('')
+  const [imageSrcs, setImageSrcs] = useState<string[]>([])
+
   useEffect(() => {
     ;(async () => {
-      const image = await imageStore.retrieveImage(content)
-      setSrc(image || '')
+      // 쉼표로 구분된 이미지 키를 배열로 변환
+      const imageKeys = content.split(', ')
+      // 각 키에 대해 이미지를 검색하고 배열에 추가
+      const images = await Promise.all(imageKeys.map((key) => imageStore.retrieveImage(key)))
+      setImageSrcs(images.filter((image) => image !== null) as string[])
     })()
   }, [content])
 
@@ -82,15 +86,22 @@ const ChatItem = ({ type, content, isLoading, isError, imageMeta, timestamp }: M
             </Alert>
           ) : (
             <>
-              {src && (
-                <PhotoView src={src}>
-                  <img src={src} className="w-[200px] cursor-pointer md:w-[300px]"></img>
-                </PhotoView>
-              )}
+              <div className="flex space-x-4 overflow-x-auto">
+                {imageSrcs.map((src, index) => (
+                  <PhotoView key={index} src={src}>
+                    <img
+                      src={src}
+                      className="w-[200px] cursor-pointer md:w-[300px]"
+                      alt={`Generated Image ${index + 1}`}
+                    ></img>
+                  </PhotoView>
+                ))}
+              </div>
             </>
           )}
         </>
       )}
+
       {timestamp && (
         <div className="mt-2">
           <span className="text-xs text-zinc-500">{new Date(timestamp).toLocaleString()}</span>
