@@ -2,7 +2,6 @@ import { ImageGenerateParams } from 'openai/resources'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { useConfigStore } from './config'
-import OpenAI from 'openai'
 import { imageStore } from 'src/lib/image-persist'
 
 export type ImageMeta = Pick<ImageGenerateParams, 'quality' | 'size' | 'style'>
@@ -57,89 +56,67 @@ export const useChatStore = create(
         set(() => ({ inputPrompt }))
       },
       async addMessage() {
-        const { style, size, apiKey, quality } = useConfigStore.getState()
-        if (!apiKey) {
-          get().toggleApiKeyDialog(true)
-          return
-        }
+        const { style, size, quality } = useConfigStore.getState()
+        const inputPrompt = get().inputPrompt
 
-        if (get().isGenerating) return
+        if (!inputPrompt || get().isGenerating) return
 
         set(() => ({
           isGenerating: true,
           messages: [
             ...get().messages,
-            { type: 'user', content: get().inputPrompt, isError: false, timestamp: Date.now() },
+            { type: 'user', content: inputPrompt, isError: false, timestamp: Date.now() },
             { type: 'assistant', content: '', isError: false, isLoading: true, timestamp: Date.now() },
           ],
         }))
 
-        const openai = new OpenAI({
-          apiKey: apiKey,
-          dangerouslyAllowBrowser: true,
-        })
-
-        const options: ImageGenerateParams = {
-          prompt: get().inputPrompt,
-          model: 'dall-e-3',
-          n: 1, // 유지
-          response_format: 'b64_json',
-          size: size,
-          style: style,
-          quality: quality,
-        }
-
-        controller = new AbortController()
-        const signal = controller.signal
-
         try {
-          const imagePromises = [
-            openai.images.generate(options, { signal }),
-            openai.images.generate(options, { signal }),
-            openai.images.generate(options, { signal }),
-          ]
-          const completions = await Promise.all(imagePromises)
+          // Create 3 promises for fetching images
+          const fetchOptions = {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: inputPrompt, size, style, quality }),
+          }
 
+          console.log(`curl -X 'POST' \\
+            'http://127.0.0.1:8000/generate-image' \\
+            -H 'Content-Type: application/json' \\
+            -d '${fetchOptions.body}'`)
+
+          const imageFetchPromises = Array.from({ length: 3 }, () =>
+            fetch('http://127.0.0.1:8000/generate-image', fetchOptions),
+          )
+
+          const responses = await Promise.all(imageFetchPromises)
           const imageKeys = await Promise.all(
-            completions.map(async (completion) => {
-              const base64 = completion.data[0].b64_json
-              if (!base64) throw new Error('invalid base64')
-              return await imageStore.storeImage('data:image/png;base64,' + base64)
+            responses.map(async (response) => {
+              if (!response.ok) throw new Error('Server error')
+              const responseData = await response.json()
+              const base64ImageData = responseData.data[0].b64_json // Extract base64 image data
+              // Log response data excluding base64 image data
+              console.log({
+                ...responseData,
+                data: [{ ...responseData.data[0], b64_json: `Length: ${base64ImageData.length} characters` }],
+              })
+              return await imageStore.storeImage(`data:image/png;base64,${base64ImageData}`)
             }),
           )
 
-          const imageMeta: ImageMeta = {
-            style: useConfigStore.getState().style,
-            size: useConfigStore.getState().size,
-            quality: useConfigStore.getState().quality,
-          }
-
-          // 세 이미지 키를 하나의 문자열로 결합
+          const imageMeta = { style, size, quality }
           const imagesContent = imageKeys.join(', ')
 
           set(() => ({
             inputPrompt: '',
             messages: [
               ...get().messages.slice(0, -1),
-              {
-                type: 'assistant',
-                content: imagesContent, // 세 이미지를 포함한 단일 메시지
-                imageMeta,
-                isError: false,
-                timestamp: Date.now(),
-              },
+              { type: 'assistant', content: imagesContent, imageMeta, isError: false, timestamp: Date.now() },
             ],
           }))
         } catch (error: any) {
           set(() => ({
             messages: [
               ...get().messages.slice(0, -1),
-              {
-                type: 'assistant',
-                content: error.message || 'Unknown error',
-                isError: true,
-                timestamp: Date.now(),
-              },
+              { type: 'assistant', content: error.message || 'Unknown error', isError: true, timestamp: Date.now() },
             ],
           }))
           console.error(error)
