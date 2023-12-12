@@ -4,8 +4,8 @@ import { Message, useChatStore } from 'src/stores/chat'
 import 'react-photo-view/dist/react-photo-view.css'
 import OpenAIIcon from '../../assets/icons/openai-logomark.svg'
 import { User2, Loader, AlertCircle } from 'lucide-react'
-import { imageStore } from 'src/lib/image-persist'
 import { Alert, AlertDescription, AlertTitle } from '../ui/alert'
+import { imageStore } from 'src/lib/image-persist'
 
 export const MessageList: React.FC = () => {
   const { messages, fixBrokenMessage } = useChatStore()
@@ -39,17 +39,26 @@ export const MessageList: React.FC = () => {
 }
 
 const ChatItem = ({ type, content, isLoading, isError, imageMeta, timestamp }: Message) => {
-  const [imageSrcs, setImageSrcs] = useState<string[]>([])
+  const [originalImageSrcs, setOriginalImageSrcs] = useState<string[]>([])
+  const [transparentImageSrcs, setTransparentImageSrcs] = useState<string[]>([])
 
   useEffect(() => {
-    ;(async () => {
-      // 쉼표로 구분된 이미지 키를 배열로 변환
-      const imageKeys = content.split(', ')
-      // 각 키에 대해 이미지를 검색하고 배열에 추가
-      const images = await Promise.all(imageKeys.map((key) => imageStore.retrieveImage(key)))
-      setImageSrcs(images.filter((image) => image !== null) as string[])
-    })()
-  }, [content])
+    if (type === 'assistant' && content) {
+      try {
+        const imageKeysObject = JSON.parse(content)
+        const originalImageKeys = imageKeysObject.originalImages || []
+        const transparentImageKeys = imageKeysObject.transparentImages || []
+
+        Promise.all(originalImageKeys.map((key: string) => imageStore.retrieveImage(key))).then(setOriginalImageSrcs)
+
+        Promise.all(transparentImageKeys.map((key: string) => imageStore.retrieveImage(key))).then(
+          setTransparentImageSrcs,
+        )
+      } catch (error) {
+        console.error('Error parsing image keys:', error)
+      }
+    }
+  }, [content, type])
 
   return (
     <div className="border-b border-gray-200 p-4 odd:bg-gray-50 last-of-type:border-none">
@@ -86,16 +95,29 @@ const ChatItem = ({ type, content, isLoading, isError, imageMeta, timestamp }: M
             </Alert>
           ) : (
             <>
-              <div className="flex space-x-4 overflow-x-auto">
-                {imageSrcs.map((src, index) => (
-                  <PhotoView key={index} src={src}>
-                    <img
-                      src={src}
-                      className="w-[200px] cursor-pointer md:w-[300px]"
-                      alt={`Generated Image ${index + 1}`}
-                    ></img>
-                  </PhotoView>
-                ))}
+              <div className="flex flex-col space-y-4">
+                <div className="flex space-x-4 overflow-x-auto">
+                  {originalImageSrcs.map((src, index) => (
+                    <PhotoView key={index} src={src}>
+                      <img
+                        src={src}
+                        className="w-[200px] cursor-pointer md:w-[300px]"
+                        alt={`Original Image ${index + 1}`}
+                      />
+                    </PhotoView>
+                  ))}
+                </div>
+                <div className="flex space-x-4 overflow-x-auto">
+                  {transparentImageSrcs.map((src, index) => (
+                    <PhotoView key={index} src={src}>
+                      <img
+                        src={src}
+                        className="w-[200px] cursor-pointer md:w-[300px]"
+                        alt={`Transparent Image ${index + 1}`}
+                      />
+                    </PhotoView>
+                  ))}
+                </div>
               </div>
             </>
           )}

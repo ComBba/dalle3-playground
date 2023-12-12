@@ -13,6 +13,8 @@ export interface Message {
   isLoading?: boolean
   imageMeta?: ImageMeta
   timestamp: number
+  imageKeys?: string[] // 일반 이미지 키 배열
+  imageKeysTransparency?: string[] // 투명 이미지 키 배열
 }
 
 type ChatStore = {
@@ -71,45 +73,51 @@ export const useChatStore = create(
         }))
 
         try {
-          // Create 3 promises for fetching images
           const fetchOptions = {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ prompt: inputPrompt, size, style, quality }),
           }
 
-          console.log(`curl -X 'POST' \\
-            'http://127.0.0.1:8000/generate-image' \\
-            -H 'Content-Type: application/json' \\
-            -d '${fetchOptions.body}'`)
-
+          // Create 3 promises for fetching images
           const imageFetchPromises = Array.from({ length: 3 }, () =>
             fetch('http://127.0.0.1:8000/generate-image', fetchOptions),
           )
 
           const responses = await Promise.all(imageFetchPromises)
-          const imageKeys = await Promise.all(
+
+          // Process each response to extract and couple the keys
+          const imageKeysCoupled = await Promise.all(
             responses.map(async (response) => {
               if (!response.ok) throw new Error('Server error')
               const responseData = await response.json()
-              const base64ImageData = responseData.data[0].b64_json // Extract base64 image data
-              // Log response data excluding base64 image data
-              console.log({
-                ...responseData,
-                data: [{ ...responseData.data[0], b64_json: `Length: ${base64ImageData.length} characters` }],
-              })
-              return await imageStore.storeImage(`data:image/png;base64,${base64ImageData}`)
+              const base64ImageData = responseData.data[0].b64_json
+              const base64ImageDataTransparency = responseData.data[0].b64_json_transparency
+
+              const imageKey = await imageStore.storeImage(`data:image/png;base64,${base64ImageData}`)
+              const imageKeyTransparency = await imageStore.storeImage(
+                `data:image/png;base64,${base64ImageDataTransparency}`,
+              )
+
+              return { original: imageKey, transparent: imageKeyTransparency }
             }),
           )
 
-          const imageMeta = { style, size, quality }
-          const imagesContent = imageKeys.join(', ')
+          const originalKeys = imageKeysCoupled.map((keyPair) => keyPair.original)
+          const transparentKeys = imageKeysCoupled.map((keyPair) => keyPair.transparent)
 
+          const imageMeta = { style, size, quality }
           set(() => ({
             inputPrompt: '',
             messages: [
               ...get().messages.slice(0, -1),
-              { type: 'assistant', content: imagesContent, imageMeta, isError: false, timestamp: Date.now() },
+              {
+                type: 'assistant',
+                content: JSON.stringify({ originalImages: originalKeys, transparentImages: transparentKeys }),
+                imageMeta,
+                isError: false,
+                timestamp: Date.now(),
+              },
             ],
           }))
         } catch (error: any) {
